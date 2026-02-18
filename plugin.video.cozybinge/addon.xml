@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+    <addon id="plugin.video.cozybinge" name="CozyBinge" version="1.0.2" provider-name="oho">
+        <requires>
+            <import addon="xbmc.python" version="3.0.1" />
+        </requires>
+
+        <extension point="xbmc.python.pluginsource" library="default.py">
+            <provides>video</provides>
+        </extension>
+
+        <extension point="xbmc.addon.metadata">
+            <summary lang="en">Create configurable lists of unseen TV episodes</summary>
+            <description lang="en">
+                Allows creating multiple user-defined lists of TV shows.
+                Each list stores rules like maximum episodes per show and
+                consecutive episode grouping. The addon displays unseen
+                episodes based on those rules and plays them with full metadata.
+            </description>
+            <platform>all</platform>
+            <license>MIT</license>
+            <source></source>
+            <assets>
+                <icon>resources/icon.png</icon>
+                <fanart>resources/fanart.jpg</fanart>
+            </assets>
+        </extension>
+
+    </addon>
