@@ -9,12 +9,15 @@ import xbmcgui
 import xbmcplugin
 import xbmcaddon
 from urllib.parse import parse_qs
+#from resources.lib import playermonitor as p
 
 ADDON = xbmcaddon.Addon()
 ADDON_ID = ADDON.getAddonInfo('id')
 HANDLE = int(sys.argv[1])
 PROFILE = xbmcvfs.translatePath(ADDON.getAddonInfo("profile"))
+IMG_PATH = xbmcvfs.translatePath(f"special://home/addons/{ADDON_ID}/resources/")
 LIST_DIR = os.path.join(PROFILE, "lists")
+WINDOW = xbmcgui.Window(10000)
 
 os.makedirs(LIST_DIR, exist_ok=True)
 
@@ -174,7 +177,9 @@ def edit_list(name=None,opt="Edit"):
             "shows": {},
             "max_eps": 4,
             "consecutive": 2,
-            "sorting": 0
+            "sorting": 0,
+            "behavior": "single",
+            "autoplay": "false"
             }
     else:
         opt = "Edit"
@@ -183,6 +188,8 @@ def edit_list(name=None,opt="Edit"):
     shows = sorted(shows, key=lambda s: s["title"])
     show_ids = [s["tvshowid"] for s in shows]
     #d.textviewer('shows',str(shows))
+    pl_map = {"single":"playlist","playlist":"single"}
+    ap_map = {"false":"true","true":"false"}
     while True:
         ids = show_ids if "all" in cfg["shows"] else cfg["shows"]
         show_lookup = {s["tvshowid"]: s["title"] for s in shows}
@@ -196,11 +203,13 @@ def edit_list(name=None,opt="Edit"):
             f"Max episodes per show: {cfg['max_eps']}",
             f"Consecutive episodes: {cfg['consecutive']}",
             f"Sort Method: {TVSHOW_SORT[cfg['sorting']][0]}",
+            f"Behavior: {cfg.get('behavior','single')}",
+            f"Autoplay: {cfg.get('autoplay','false')}",
             "Save and exit"
         ]
         if opt == "Edit":
             menu.append(f"[COLOR red]... delete list[/COLOR]")
-        choice = xbmcgui.Dialog().select(f"{opt} {name}", menu)
+        choice = xbmcgui.Dialog().select(f"{opt}:  {name}", menu)
         if choice == -1:
             return
 
@@ -233,20 +242,24 @@ def edit_list(name=None,opt="Edit"):
             sel = xbmcgui.Dialog().select("Sorting Shows", labels)
             if sel != -1:
                 cfg["sorting"] = sel
-        
-        elif choice == 4:  # save
+        elif choice == 4:
+            cfg["behavior"] = pl_map[cfg.get('behavior','single')] if cfg.get("autoplay") != "true" else "playlist" 
+        elif choice == 5:
+            cfg["autoplay"] = ap_map[cfg.get('autoplay','false')]
+            cfg["behavior"] = "playlist" if cfg.get("autoplay") == "true" else cfg["behavior"]
+        elif choice == 6:  # save
             if len(cfg["shows"]) < 1:
                 d.notification(f"{str(name).upper()}", f"...no Tvshows selected", xbmcgui.NOTIFICATION_INFO, 2000)
                 return
             save_list(name, cfg)
             return
-        elif choice == 5: # delete
+        elif choice == 7: # delete
             if d.yesno(f'Delete "{name.upper()}"',f'really delete "{name.upper()}"?'):
                 remove_list(name)
             return
 
 
-# ---------- Episode listing ----------
+# ---------- Episode handling ----------
 def handle_episodes(item):
     #d.textviewer('handle_episodes',str(li))
     director = item.get('director', '')
@@ -275,6 +288,7 @@ def handle_episodes(item):
     video_tag.setPlaycount(item['playcount'])
     video_tag.setPath(item['file'])
     video_tag.setDateAdded(item['dateadded'])
+    video_tag.setResumePoint(float(item['resume']['position']),float(item['resume']['total']))
     video_tag.setMediaType('episode')
     
     # Director Writer
@@ -283,10 +297,10 @@ def handle_episodes(item):
     if writer:
         video_tag.setWriters([writer] if isinstance(writer, str) else writer)
     
-    # Resume-Informationen
-    li_item.setProperty('resumetime', str(item['resume']['position']))
-    li_item.setProperty('totaltime', str(item['resume']['total']))
-    li_item.setProperty('season_label', item.get('season_label', ''))
+    # Resume-Informationen xxx delete
+    #li_item.setProperty('resumetime', str(item['resume']['position']))
+    #li_item.setProperty('totaltime', str(item['resume']['total']))
+    #li_item.setProperty('season_label', item.get('season_label', ''))
     
     # Art
     li_item.setArt({'icon': 'DefaultTVShows.png',
@@ -310,16 +324,22 @@ def handle_episodes(item):
     if item['season'] == '0':
         li_item.setProperty('IsSpecial', 'true')
     
-    return li_item
+    return li_item, label
 
+#--------- list build ------------
 
 def build_list(name):
     cfg = load_list(name)
     if not cfg:
         return
     
-    xbmcplugin.setContent(HANDLE, 'episodes')
-    xbmcplugin.setPluginCategory(HANDLE, 'episodes')
+    is_playlist = False if cfg.get("behavior") == "single" else True
+    is_autoplay = False if cfg.get("autoplay") == "false" else True
+    
+    if not is_autoplay:
+        xbmcplugin.setContent(HANDLE, 'episodes')
+        xbmcplugin.setPluginCategory(HANDLE, f"{name.upper()}")
+    
     li = xbmcgui.ListItem(label='')
     items = []
 
@@ -344,28 +364,70 @@ def build_list(name):
         for lst in eps:
             result.extend(lst[i:i + s])
     
+    labelscb = ['..']
     for ep in result:
         url = ep['file']
-        li = handle_episodes(ep)
+        li,label = handle_episodes(ep)
+        
+        # Playlist Test
+        #playlist.add(url=url, listitem=li)
+        
+        labelscb.append(label)
         items.append((url, li, False))
     
-    if items:
-        xbmcplugin.addDirectoryItems(HANDLE, items)
-    xbmcplugin.endOfDirectory(HANDLE)
+    #d.textviewer('labelscb',str(labelscb))
+    if not is_autoplay:
+        if items:
+            xbmcplugin.addDirectoryItems(HANDLE, items)
+        xbmcplugin.endOfDirectory(HANDLE)
 
+    if is_playlist:
+        # Playlist Test
+        playlist = xbmc.PlayList(xbmc.PLAYLIST_VIDEO)
+        player = xbmc.Player()
+        cur_label = 'xxxcozybingexxx'
+        while not player.isPlaying():
+            xbmc.sleep(100)
+            #d.notification(f"CozyBinge", f"{labelscb.index(cur_label)}" if cur_label in labelscb else f"{cur_label}", xbmcgui.NOTIFICATION_INFO, 2000)
+            if xbmc.getInfoLabel('ListItem.Label') not in labelscb:
+                break
+            cur_label = xbmc.getInfoLabel('ListItem.Label') or cur_label
+        
+        if cur_label in labelscb:
+            playlist.clear()
+            for i,a in enumerate(items):
+                if i > labelscb.index(cur_label) - 2:
+                    playlist.add(url=a[0], listitem=a[1])
+                    
+        elif is_playlist and is_autoplay:
+            playlist.clear()
+            for i in items:
+                playlist.add(url=i[0], listitem=i[1])
+            
+        if is_autoplay and not xbmc.getCondVisibility('Window.IsActive(10000)'):
+            #xbmc.executebuiltin("Dialog.Close(busydialog)")
+            xbmc.executebuiltin('Dialog.Close(all, true)')
+            xbmc.sleep(100)
+            player.play(playlist)
+        
 # ---------- Menu ----------
 
 def root_menu():
     xbmcplugin.setContent(HANDLE, 'videos')
     xbmcplugin.setPluginCategory(HANDLE, 'tvshows')
-
+    fanart = os.path.join(IMG_PATH, f"fanart.jpg")
+    
     li = xbmcgui.ListItem("...New list")
+    li.setArt({'fanart':fanart})
     xbmcplugin.addDirectoryItem(HANDLE, f"{sys.argv[0]}?action=new", li, False)
-
     for name in get_all_lists():
         name = name.replace("_", " ")
         li = xbmcgui.ListItem(name)
-        li.setInfo('video', {'title': name, 'mediatype': 'video'})
+        info_tag = li.getVideoInfoTag()
+        info_tag.setMediaType('tvshow')
+        info_tag.setTitle(name.capitalize())
+        #li.setInfo('video', {'title': name, 'mediatype': 'video'})
+        li.setArt({'fanart':fanart})
         url = f"{sys.argv[0]}?action=list&list={name}"
         edit_cmd = f"RunPlugin(plugin://{ADDON_ID}/?action=edit&list={name})"
         li.addContextMenuItems([(f"[COLOR goldenrod]Edit[/COLOR]", edit_cmd)])
