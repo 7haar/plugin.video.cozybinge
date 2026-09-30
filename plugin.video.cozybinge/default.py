@@ -205,7 +205,7 @@ def edit_list(name=None,opt="Edit"):
             f"Sort Method: {TVSHOW_SORT[cfg['sorting']][0]}",
             f"Behavior: {cfg.get('behavior','single')}",
             f"Autoplay: {cfg.get('autoplay','false')}",
-            "Save and exit"
+            f"[COLOR green]Save and exit[/COLOR]"
         ]
         if opt == "Edit":
             menu.append(f"[COLOR red]... delete list[/COLOR]")
@@ -368,10 +368,8 @@ def build_list(name):
     for ep in result:
         url = ep['file']
         li,label = handle_episodes(ep)
-        
-        # Playlist Test
-        #playlist.add(url=url, listitem=li)
-        
+        tos_cmd = f"ActivateWindow(10025,videodb://tvshows/titles/{ep['tvshowid']},return)"
+        li.addContextMenuItems([(f"[COLOR goldenrod]go to series[/COLOR]", tos_cmd)])
         labelscb.append(label)
         items.append((url, li, False))
     
@@ -381,29 +379,56 @@ def build_list(name):
             xbmcplugin.addDirectoryItems(HANDLE, items)
         xbmcplugin.endOfDirectory(HANDLE)
 
-    if is_playlist:
+    if is_playlist and not xbmc.getCondVisibility('Window.IsActive(10000)'):
         # Playlist Test
         playlist = xbmc.PlayList(xbmc.PLAYLIST_VIDEO)
         player = xbmc.Player()
-        cur_label = 'xxxcozybingexxx'
-        while not player.isPlaying():
-            xbmc.sleep(100)
-            #d.notification(f"CozyBinge", f"{labelscb.index(cur_label)}" if cur_label in labelscb else f"{cur_label}", xbmcgui.NOTIFICATION_INFO, 2000)
-            if xbmc.getInfoLabel('ListItem.Label') not in labelscb:
-                break
-            cur_label = xbmc.getInfoLabel('ListItem.Label') or cur_label
-        
-        if cur_label in labelscb:
-            playlist.clear()
-            for i,a in enumerate(items):
-                if i > labelscb.index(cur_label) - 2:
-                    playlist.add(url=a[0], listitem=a[1])
-                    
-        elif is_playlist and is_autoplay:
+        startpos = -1
+    
+        if not is_autoplay:
+            while True:
+                xbmc.sleep(100)
+                if xbmc.getInfoLabel('Container.ListItem(0).Label') in labelscb:
+                    folderpath = xbmc.getInfoLabel('Container.FolderPath')
+                    break
+            
+            #d.notification('CozyBinge', f"{folderpath}", xbmcgui.NOTIFICATION_INFO, 2000)
+                        
+            ## Debug ##
+            #dprog = xbmcgui.DialogProgressBG()
+            #dprog.create('CozyBinge', "DEBUG")
+            ###
+            
+            while True:
+                xbmc.sleep(100)
+                cur_folderpath = xbmc.getInfoLabel('Container.FolderPath')
+                in_path = cur_folderpath == folderpath
+                if player.isPlaying():
+                    break 
+                if not in_path:
+                    startpos = -1
+                    break
+                startpos = int(xbmc.getInfoLabel('Container.CurrentItem')) - 1
+                cur_label = labelscb[startpos + 1] if startpos + 1 < len(labelscb) else None
+                #dprog.update(0, f"{str(startpos)} : {cur_label} : {cur_folderpath}")
+            
+            # Debug
+            #dprog.close()
+
+            if startpos > -1:
+                #xbmc.sleep(500)
+                playlist.clear()
+                for i,a in enumerate(items):
+                    if i > startpos - 1:
+                        playlist.add(url=a[0], listitem=a[1])
+                #d.notification('CozyBinge', f"Playlist", xbmcgui.NOTIFICATION_INFO, 2000)
+                #dprog.close()
+            
+        if is_playlist and is_autoplay:
             playlist.clear()
             for i in items:
                 playlist.add(url=i[0], listitem=i[1])
-            
+                
         if is_autoplay and not xbmc.getCondVisibility('Window.IsActive(10000)'):
             #xbmc.executebuiltin("Dialog.Close(busydialog)")
             xbmc.executebuiltin('Dialog.Close(all, true)')
